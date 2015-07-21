@@ -1,61 +1,40 @@
 #![allow(dead_code, unused_must_use)]
-
 use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread;
+use super::well;
 
-fn read_from_mailbox(mbox: Receiver<i64>) {
-    loop {
-        mbox.recv();
-    }
-}
+struct Actor<M>{mailbox: Receiver<M>}
 
-fn send_to_mailbox(mbox: Sender<i64>, i:i64) {
-    loop {
-        mbox.send(i);
-    }
-}
-macro_rules! spawn {
-    ($($case:pat => $result:expr),*) => {
-        {
-            let(address, mbox) = channel();
-            thread::spawn(move || {
-                loop {
-                    match mbox.recv() {
-                        Ok(message) => {
-                            match message {
-                                $($case => $result),*
-                            }
-                        }
-                        Err(_) => println!("No more senders"),
-                    }
-                }
-            });
-            address
+impl<M> Actor<M> {
+    fn receive<Message,F>(&mut self, f:F) where F: FnOnce(M){
+        match self.mailbox.recv() {
+            Ok(message) => f(message),
+            Err(err) => println!("Received channel error: {}", err),
         }
-    };
+    }
 }
-fn main() {
-    let address: Sender<i32> = spawn!{
-        1 => (),
-        _ => break
-    };
 
+fn spawn<F>(f:F) -> Sender<i32> where F: FnOnce(Actor<i32>) + Send + 'static{
+    let(address, mbox) = channel::<i32>();
+    well::spawn(move || {
+        let actor = Actor{mailbox: mbox};
+        f(actor);
+    });
+    address
+}
+
+macro_rules! actor {
+    ($($fun:ident($($args:expr),*));*;) => {
+        |mut actor: Actor<_>| {
+            $(actor.$fun::<i32,_>($($args),*);)*;
+        }
+    }
+}
+
+fn main() {
+    let actor = actor! {
+        receive(|m| {m + 2;});
+        receive(|m| {m + 3;});
+    };
+    let address = spawn(actor);
     address.send(1);
 }
-
-/*Are actors monads, or comonads?
-monad m supports bind :: m a -> (a -> m b) -> m b and return :: a -> m a
-comonad w supports extend :: a -> (w a -> b) -> w b and extract :: w a -> a
-
-Monad
-divide2byX x = if x != 0 then Some(2 / x) else Nothing
-24 >>= divide2byX >>= \x case x of Some(a) divide2byX a else Nothing
-
-Comonad
-blur k (P i a)  = .5*k*a!(i-1) + k*a!i + .5*k*a!(i+1)
-P 0 x ==> fmap (+1) =>> blur 24 =>> blur .5 ==> fmap(* 4)
-
-In the first, plumbing between sequential computation was abstracted, binding results to functions.
-In the second, computation over an entire context was abstracted, extending reductions over contexts.
-
-data Mailbox<M>;*/

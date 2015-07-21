@@ -26,7 +26,7 @@ passing library.
 
 This is a list of everything you would ever want from an actors library in Erlang:
 - Spawn a procedure that runs a function with some initial arguments.  
-`PID = spawn(fn, args)`  
+`PID = spawn(fn)`  
 - The ability to receive messages and pattern match against them.  
 `receive {
   (command, args) -> do_stuff_with(args),
@@ -63,16 +63,46 @@ is spawned by the first to do the actual processing.
 state machine. In that case, perhaps selective reception is the best tool.  
 - Behavior change through tail-recursive calls.  
 See: http://notes.backgroundsignal.com/ErlangStyle.html  
-- Default message selection.
+- Default message selection.  
 `receive {
   num@_ -> num + 4;
 }`  
-- Global registry of aliases.
+- Global registry of aliases.  
 `receive {
   (Alert, President) -> registry.get(President) ! Run;  
 }`  
-- Timeouts.
+- Timeouts.  
 `receive {
   ImportantMessage -> folow_orders();
   after 20 -> println!("He's gone. We have to go our own way.");
 }`  
+- A way to carry state. In Erlang, this is done with tail recursive functions.  
+`stateful(state) {
+    receive {
+      change_state(arg) -> stateful(state+1);
+      do_not_change -> stateful(state);
+    }
+}`  
+- Linking processes.  
+`a() ->
+  stuff.
+
+ b() ->
+   link(spawn(a).
+`  
+- Trapping signals.  
+`a() ->
+  kill(self()).
+ b() ->
+  process_flag(trap_exit, true);
+  spawn_link(a)`  
+- Killing processes. This should not be trappable.
+`a() ->
+  receive {
+  _ -> hang;  
+}
+ b() ->
+ exit(a, "hanging_process");
+ `  
+- Monitor processes.  
+` spawn_monitor(a) `  
