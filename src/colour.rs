@@ -4,6 +4,10 @@ use super::well;
 
 struct Actor<M:Send> { mbox: Receiver<M> }
 
+
+
+pub struct Behavior<M:Send>(pub Option<Box<Fn(&mut Actor<M>) -> Behavior<M>>>);
+
 impl <M:Send> Actor<M> {
     pub fn recv(&mut self) -> M {
         match self.mbox.recv() {
@@ -12,14 +16,12 @@ impl <M:Send> Actor<M> {
         }
     }
 }
-
-struct Behavior<M:Send>(Option<Box<Fn(&mut Actor<M>) -> Behavior<M>>>);
-
 #[inline]
-fn end<M:Send>() -> Behavior<M> {
+pub fn end<M:Send>() -> Behavior<M> {
     Behavior(None)
 }
 
+#[macro_export]
 macro_rules! behavior {
     ($closure:expr) => {
         Behavior(Some(Box::new(
@@ -30,7 +32,7 @@ macro_rules! behavior {
 
 unsafe impl <M> Send for Behavior<M> { }
 
-fn spawn<M:'static + Send>(b: Behavior<M>) -> Sender<M> {
+pub fn spawn<M:'static + Send>(b: Behavior<M>) -> Sender<M> {
     let (address, mbox) = channel::<M>();
     let mut actor = Actor { mbox: mbox };
 
@@ -44,29 +46,4 @@ fn spawn<M:'static + Send>(b: Behavior<M>) -> Sender<M> {
     });
 
     address
-}
-
-fn recurse_actor() -> Behavior<i32> {
-    behavior!(
-        |actor| {
-            match actor.recv() {
-                0 => {println!("Buh-bye!"); end()},
-                i@_ => {println!("Got a {}!", i); recurse_actor()},
-            }
-        }
-)}
-
-fn main() {
-
-    let send = spawn(recurse_actor());
-    for i in 1..10 {
-        let sender = send.clone();
-        well::spawn(move || {
-            for j in (1+ 1000*(i - 1))..(1000 + 1000*(i-1)) {
-                sender.send(j);
-            }
-        });
-    }
-    ::std::thread::sleep_ms(2000);
-    send.send(0);
 }

@@ -1,6 +1,2 @@
-mod colour;
-mod well;
-#[test]
-fn it_works() {
-    colour::spawn();
-}
+pub mod colour;
+pub mod well;
