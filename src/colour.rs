@@ -2,39 +2,71 @@
 use std::sync::mpsc::{channel, Sender, Receiver};
 use super::well;
 
-struct Actor<M>{mailbox: Receiver<M>}
+struct Actor<M:Send> { mbox: Receiver<M> }
 
-impl<M> Actor<M> {
-    fn receive<Message,F>(&mut self, f:F) where F: FnOnce(M){
-        match self.mailbox.recv() {
-            Ok(message) => f(message),
-            Err(err) => println!("Received channel error: {}", err),
+impl <M:Send> Actor<M> {
+    pub fn recv(&mut self) -> M {
+        match self.mbox.recv() {
+            Ok(message) => message,
+            Err(err) => panic!("Encountered error: {}", err),
         }
     }
 }
 
-fn spawn<F>(f:F) -> Sender<i32> where F: FnOnce(Actor<i32>) + Send + 'static{
-    let(address, mbox) = channel::<i32>();
+struct Behavior<M:Send>(Option<Box<Fn(&mut Actor<M>) -> Behavior<M>>>);
+
+#[inline]
+fn end<M:Send>() -> Behavior<M> {
+    Behavior(None)
+}
+
+macro_rules! behavior {
+    ($closure:expr) => {
+        Behavior(Some(Box::new(
+            $closure
+        )));
+    }
+}
+
+unsafe impl <M> Send for Behavior<M> { }
+
+fn spawn<M:'static + Send>(b: Behavior<M>) -> Sender<M> {
+    let (address, mbox) = channel::<M>();
+    let mut actor = Actor { mbox: mbox };
+
     well::spawn(move || {
-        let actor = Actor{mailbox: mbox};
-        f(actor);
+        if let Some(p_to_c) = b.0 {
+            let mut c = p_to_c;
+            while let Some(next) = ((*c)(&mut actor)).0 {
+                c = next;
+            }
+        }
     });
+
     address
 }
 
-macro_rules! actor {
-    ($($fun:ident($($args:expr),*));*;) => {
-        |mut actor: Actor<_>| {
-            $(actor.$fun::<i32,_>($($args),*);)*;
+fn recurse_actor() -> Behavior<i32> {
+    behavior!(
+        |actor| {
+            match actor.recv() {
+                0 => {println!("Buh-bye!"); end()},
+                i@_ => {println!("Got a {}!", i); recurse_actor()},
+            }
         }
-    }
-}
+)}
 
 fn main() {
-    let actor = actor! {
-        receive(|m| {m + 2;});
-        receive(|m| {m + 3;});
-    };
-    let address = spawn(actor);
-    address.send(1);
+
+    let send = spawn(recurse_actor());
+    for i in 1..10 {
+        let sender = send.clone();
+        well::spawn(move || {
+            for j in (1+ 1000*(i - 1))..(1000 + 1000*(i-1)) {
+                sender.send(j);
+            }
+        });
+    }
+    ::std::thread::sleep_ms(2000);
+    send.send(0);
 }
